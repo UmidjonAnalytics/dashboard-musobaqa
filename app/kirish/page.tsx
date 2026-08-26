@@ -77,7 +77,7 @@ export default function LoginPage() {
       {status === "pending" && (
         <>
           <p className="mt-6 text-ink/70">{uz.login.instructions}</p>
-          <a
+          
             href={deepLink}
             target="_blank"
             rel="noreferrer"
