@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { sendMessage, leaveChat } from "@/lib/telegram";
+import { sendMessage, leaveChat, answerCallbackQuery, editMessageText } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
-// This is the bot's webhook. Telegram calls it every time something
-// happens involving the bot -- we only care about the bot being added to
-// or removed from a group (a "my_chat_member" update).
+const TOKEN_LIFETIME_MS = 10 * 60 * 1000; // 10 minutes
+
+// This is the bot's one and only webhook. Telegram calls it for every kind
+// of update; we only react to three of them:
+//   - message            -> someone tapped a "log in" deep link (/start <token>)
+//   - callback_query     -> someone tapped Confirm/Cancel under the bot's message
+//   - my_chat_member     -> the bot was added to or removed from a group
 export async function POST(req: NextRequest) {
   const secretHeader = req.headers.get("x-telegram-bot-api-secret-token");
   if (secretHeader !== process.env.TELEGRAM_WEBHOOK_SECRET) {
@@ -16,17 +20,132 @@ export async function POST(req: NextRequest) {
 
   const update = await req.json();
 
-  if (update.my_chat_member) {
-    try {
+  try {
+    if (update.message) {
+      await handleMessage(update.message);
+    } else if (update.callback_query) {
+      await handleCallbackQuery(update.callback_query);
+    } else if (update.my_chat_member) {
       await handleMyChatMember(update.my_chat_member);
-    } catch (err) {
-      console.error("my_chat_member handling failed:", err);
     }
+  } catch (err) {
+    console.error("webhook handling failed:", err);
   }
 
   // Telegram just wants a fast 200 response; it does not read the body.
   return NextResponse.json({ ok: true });
 }
+
+// ----------------------------------------------------------------------------
+// Login: "/start <token>" deep link -> ask the person to confirm
+// ----------------------------------------------------------------------------
+
+type Message = {
+  chat: { id: number };
+  text?: string;
+};
+
+async function handleMessage(message: Message) {
+  const text = message.text?.trim();
+  if (!text || !text.startsWith("/start")) return;
+
+  const token = text.split(/\s+/)[1];
+  const chatId = message.chat.id;
+
+  if (!token) {
+    await sendMessage(chatId, "Saytdagi \"Telegram orqali kirish\" tugmasini bosib qaytadan urining.");
+    return;
+  }
+
+  const admin = supabaseAdmin();
+  const { data: row } = await admin
+    .from("login_tokens")
+    .select("status, created_at")
+    .eq("token", token)
+    .maybeSingle();
+
+  const tooOld = row && Date.now() - new Date(row.created_at).getTime() > TOKEN_LIFETIME_MS;
+
+  if (!row || row.status !== "pending" || tooOld) {
+    await sendMessage(chatId, "Bu kirish havolasi eskirgan. Saytga qaytib, qaytadan urinib ko'ring.");
+    return;
+  }
+
+  await sendMessage(chatId, "Saytga kirishni tasdiqlaysizmi?", {
+    inline_keyboard: [
+      [
+        { text: "Ha, tasdiqlayman", callback_data: `confirm:${token}` },
+        { text: "Bekor qilish", callback_data: `cancel:${token}` },
+      ],
+    ],
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Login: Confirm / Cancel button tap
+// ----------------------------------------------------------------------------
+
+type CallbackQuery = {
+  id: string;
+  data?: string;
+  from: { id: number; username?: string; first_name?: string };
+  message?: { chat: { id: number }; message_id: number };
+};
+
+async function handleCallbackQuery(cq: CallbackQuery) {
+  const [action, token] = (cq.data ?? "").split(":");
+
+  if (!token || (action !== "confirm" && action !== "cancel")) {
+    await answerCallbackQuery(cq.id);
+    return;
+  }
+
+  const admin = supabaseAdmin();
+  const { data: row } = await admin
+    .from("login_tokens")
+    .select("status, created_at")
+    .eq("token", token)
+    .maybeSingle();
+
+  const tooOld = row && Date.now() - new Date(row.created_at).getTime() > TOKEN_LIFETIME_MS;
+
+  if (!row || row.status !== "pending" || tooOld) {
+    await answerCallbackQuery(cq.id, "Bu havola endi amal qilmaydi.");
+    return;
+  }
+
+  if (action === "cancel") {
+    await admin.from("login_tokens").update({ status: "cancelled" }).eq("token", token);
+    await answerCallbackQuery(cq.id, "Bekor qilindi.");
+    if (cq.message) {
+      await editMessageText(cq.message.chat.id, cq.message.message_id, "Kirish bekor qilindi.");
+    }
+    return;
+  }
+
+  await admin
+    .from("login_tokens")
+    .update({
+      status: "confirmed",
+      telegram_id: cq.from.id,
+      username: cq.from.username ?? null,
+      first_name: cq.from.first_name ?? "Talaba",
+    })
+    .eq("token", token);
+
+  await answerCallbackQuery(cq.id, "Tasdiqlandi!");
+  if (cq.message) {
+    await editMessageText(
+      cq.message.chat.id,
+      cq.message.message_id,
+      "Tasdiqlandi. Brauzeringizga qayting."
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Group approval (unchanged from before)
+// ----------------------------------------------------------------------------
 
 type ChatMemberUpdate = {
   chat: { id: number; title?: string };

@@ -1,16 +1,10 @@
+import Link from "next/link";
 import { getCurrentUser, isEligible } from "@/lib/currentUser";
 import { uz } from "@/lib/uz";
-import { TELEGRAM_BOT_USERNAME, SITE_URL } from "@/lib/config";
-import LoginWidget from "@/components/LoginWidget";
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ login?: string }>;
-}) {
-  const params = await searchParams;
+export default async function HomePage() {
   const user = await getCurrentUser();
   const eligible = isEligible(user);
 
@@ -37,24 +31,12 @@ export default async function HomePage({
           <>
             <p className="text-ink/70">{uz.home.notLoggedIn}</p>
             <p className="mt-1 text-ink/70">{uz.home.loginHint}</p>
-
-            {params.login === "not-eligible" && (
-              <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                {uz.home.notEligible}
-              </p>
-            )}
-            {params.login === "error" && (
-              <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-900">
-                {uz.loginError.badRequest}
-              </p>
-            )}
-
-            <div className="mt-6">
-              <LoginWidget
-                botUsername={TELEGRAM_BOT_USERNAME}
-                authUrl={`${SITE_URL}/api/auth/telegram`}
-              />
-            </div>
+            <Link
+              href="/kirish"
+              className="mt-6 inline-block rounded-xl bg-accent2 px-6 py-3 font-medium text-white"
+            >
+              {uz.nav.login}
+            </Link>
           </>
         )}
       </div>

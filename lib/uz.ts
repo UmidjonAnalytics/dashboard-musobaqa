@@ -24,7 +24,15 @@ export const uz = {
       "Hisobingiz topildi, lekin siz hozircha hech qanday tasdiqlangan sinf guruhida emassiz. Agar bu xato bo'lsa, o'qituvchingizga murojaat qiling.",
   },
 
-  loginError: {
-    badRequest: "Kirishda xatolik yuz berdi. Qaytadan urinib ko'ring.",
+  login: {
+    title: "Telegram orqali kirish",
+    preparing: "Tayyorlanmoqda...",
+    instructions:
+      "Quyidagi tugmani bosing -- Telegram ilovasi ochiladi va bot sizdan tasdiqlashni so'raydi.",
+    openTelegram: "Telegramda ochish",
+    waiting: "Tasdiqlashni kutyapmiz... Telegramda \"Ha, tasdiqlayman\" tugmasini bosing.",
+    cancelled: "Kirish bekor qilindi.",
+    expired: "Kirish havolasi eskirdi yoki noto'g'ri edi.",
+    retry: "Qaytadan urinish",
   },
 } as const;
